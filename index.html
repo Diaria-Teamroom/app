@@ -570,6 +570,14 @@ dialog h2{font-size:22px;color:#8baadd;margin-bottom:6px}
   </div>
 
   <div class="card">
+    <div class="card-head"><h2><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg></span>Respaldo de datos</h2></div>
+    <div class="card-body grid">
+      <p class="hint" style="margin:0">Todo lo de la Team Room (historial de reuniones, indicadores elegidos y meses cargados) se guarda en este navegador. Descargá el respaldo para pasarlo a otra compu o a otra dirección de la página, y cargalo ahí.</p>
+      <div class="row"><button class="btn cyan" id="bkDown">⬇ Descargar respaldo</button><label class="btn sm" style="cursor:pointer">⬆ Cargar respaldo<input type="file" id="bkUp" accept=".json,application/json" hidden></label></div>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="card-head"><h2><span class="ico"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h12"/></svg></span>Indicadores de la Team Room por turno</h2><div class="tabs" id="iTabs" role="tablist"></div></div>
     <div class="card-body grid">
       <p class="hint" style="margin:0">Elegí qué KPIs de la Diaria se muestran en la Team Room de cada turno y en qué orden. La Diaria siempre muestra todos.</p>
@@ -1513,6 +1521,23 @@ async function actualizar(interactivo, soloSiCambio) {
   } catch (e) { toast("No se pudo leer el archivo vinculado. Si OneDrive lo movió o renombró, vinculalo de nuevo."); }
   renderLink();
 }
+/* ===== respaldo: descargar y cargar todo lo guardado en este navegador ===== */
+$("#bkDown").onclick = () => {
+  const datos = {};
+  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("trdep3_") && k !== "trdep3_link") datos[k] = localStorage.getItem(k); }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: "team-room", fecha: new Date().toISOString(), datos })], { type: "application/json" }));
+  a.download = `TeamRoom_respaldo_${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast(`Respaldo descargado (${Object.keys(datos).length} grupos de datos)`);
+};
+$("#bkUp").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  let r; try { r = JSON.parse(await f.text()); } catch (_) { r = null; }
+  if (!r || r.app !== "team-room" || !r.datos) { toast("Ese archivo no es un respaldo de la Team Room"); return; }
+  if (!confirm(`Se van a reemplazar los datos de este navegador por los del respaldo del ${new Date(r.fecha).toLocaleString("es-AR")}. ¿Continuar?`)) return;
+  Object.entries(r.datos).forEach(([k, v]) => { if (k.startsWith("trdep3_")) localStorage.setItem(k, v); });
+  toast("Respaldo cargado. Recargando…"); setTimeout(() => location.reload(), 900);
+};
 async function desvincular() { linkH = null; linkInfo = null; LS.del("link"); await IDB.del("kpi"); renderLink(); toast("Archivo desvinculado"); }
 async function renderLink() {
   const box = $("#linkBox"); if (!box) return;
