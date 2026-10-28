@@ -792,9 +792,26 @@ dialog h2{font-size:22px;color:#8baadd;margin-bottom:6px}
 </dialog>
 
 <div class="toast" id="toast" hidden></div>
+<div id="adm" style="position:fixed;left:12px;bottom:12px;z-index:60;display:flex;gap:6px;align-items:center;font:500 12px/1 var(--body,system-ui);">
+  <button type="button" id="admBtn" style="background:var(--panel2,#1b2230);color:var(--muted,#9aa6b8);border:1px solid var(--line,#2a3446);border-radius:999px;padding:7px 12px;cursor:pointer;font:inherit">Admin</button>
+</div>
+<dialog id="admDlg" style="background:var(--panel,#121824);color:var(--text,#e8eef7);border:1px solid var(--line,#2a3446);border-radius:12px;padding:20px;max-width:320px;width:calc(100% - 32px)">
+  <form id="admForm" style="display:flex;flex-direction:column;gap:10px;margin:0">
+    <strong style="font-size:16px">Ingreso de administrador</strong>
+    <span style="color:var(--muted,#9aa6b8);font-size:13px">El mismo usuario administrador de Mi Productividad. Lo que cargues lo ve todo el equipo.</span>
+    <input id="admMail" type="email" placeholder="Correo" autocomplete="username" required style="padding:10px;border-radius:8px;border:1px solid var(--line,#2a3446);background:var(--bg,#0b0f17);color:inherit;font:inherit">
+    <input id="admPass" type="password" placeholder="Contraseña" autocomplete="current-password" required style="padding:10px;border-radius:8px;border:1px solid var(--line,#2a3446);background:var(--bg,#0b0f17);color:inherit;font:inherit">
+    <span id="admErr" style="color:var(--red,#e5534b);font-size:13px" hidden></span>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button type="button" id="admCancel" style="padding:8px 14px;border-radius:8px;border:1px solid var(--line,#2a3446);background:none;color:inherit;cursor:pointer;font:inherit">Cancelar</button>
+      <button type="submit" style="padding:8px 14px;border-radius:8px;border:0;background:var(--cyan,#2bc4d8);color:#061016;cursor:pointer;font:600 14px/1 var(--body,system-ui)">Entrar</button>
+    </div>
+  </form>
+</dialog>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ================== CONFIGURACIÓN BASE (editable) ================== */
 const IMG = { book: "data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjU2IDI1NiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBmaWxsPSIjMjYzZjkxIiBkPSJNOCA1OGg5MmMxMyAwIDI0IDggMjggMTggNC0xMCAxNS0xOCAyOC0xOGg5MnYxNzJoLTg4Yy0xMyAwLTI0IDUtMzIgMTQtOC05LTE5LTE0LTMyLTE0SDh6Ii8+PHBhdGggZmlsbD0iIzE2OGJmMSIgc3Ryb2tlPSIjMDkyYjNiIiBzdHJva2Utd2lkdGg9IjgiIGQ9Ik0yMCA0NGg3OGMxNCAwIDI2IDcgMzAgMTh2MTYxYy0xMC05LTIyLTE0LTM2LTE0SDIwek0yMzYgNDRoLTc4Yy0xNCAwLTI2IDctMzAgMTh2MTYxYzEwLTkgMjItMTQgMzYtMTRoNzJ6Ii8+PHBhdGggZmlsbD0iI2VhZjBmZiIgc3Ryb2tlPSIjMDkyYjNiIiBzdHJva2Utd2lkdGg9IjgiIGQ9Ik0zNiAyOGg1OWMxNiAwIDI5IDggMzMgMTl2MTY2Yy0xNC0xNi0zNC0yNS01Ny0yNUgzNnpNMjIwIDI4aC01OWMtMTYgMC0yOSA4LTMzIDE5djE2NmMxNC0xNiAzNC0yNSA1Ny0yNWgzNXoiLz48cGF0aCBmaWxsPSJub25lIiBzdHJva2U9IiMwOTJiM2IiIHN0cm9rZS13aWR0aD0iOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBkPSJNNTUgNzBjMjIgNSAzOSAxNCA1NSAyOU01NSA5NmMyMiA1IDM5IDE0IDU1IDI5TTU1IDEyMmMyMiA1IDM5IDE0IDU1IDI5Ii8+PC9zdmc+", check: "data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjU2IDI1NiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMjgiIGN5PSIxMjgiIHI9IjExNiIgZmlsbD0iIzU5YmQ0MCIvPjxwYXRoIGQ9Ik02NSAxMjVsNDIgNDMgODUtOTQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2Y0ZjZmOCIgc3Ryb2tlLXdpZHRoPSIzMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+", dash: "data:image/webp;base64,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" };
@@ -854,7 +871,62 @@ const optList = (sel, arr, val) => { sel.innerHTML = arr.map(v => `<option ${v =
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 /* ================== capacidades de la plataforma (si existen) ================== */
-const cap = name => (window.claude && typeof window.claude.use === "function") ? window.claude.use(name).catch(() => null) : Promise.resolve(null);
+/* ===== base compartida en Supabase (mismo proyecto que Mi Productividad) =====
+   Todos leen; solo el administrador carga y cambia. Las sesiones de arranque de turno las guarda cualquiera. */
+const SB_URL = "https://chwxnahvdpufcuyjpocj.supabase.co", SB_KEY = "sb_publishable_4uRwwSKwjzv5T84NF2PZ-Q_-9O__I_B";
+const sb = (window.supabase && window.supabase.createClient) ? window.supabase.createClient(SB_URL, SB_KEY) : null;
+let sbAdmin = false;
+const soloLectura = () => Object.assign(new Error("solo lectura"), { code: "solo-lectura" });
+function sbDb(app) {
+  const subs = [], cache = {};
+  async function refresh(col) {
+    const { data, error } = await sb.from("compartido").select("id,datos").eq("app", app).eq("coleccion", col);
+    if (error) { subs.filter(x => x.col === col && x.err).forEach(x => x.err(error)); return; }
+    cache[col] = Object.fromEntries(data.map(r => [r.id, r.datos])); emit(col);
+  }
+  function fire(x) {
+    const c = cache[x.col] || {};
+    if (x.id == null) x.cb({ docs: Object.entries(c).map(([id, d]) => ({ id, data: () => d })) });
+    else x.cb({ id: x.id, exists: x.id in c, data: () => c[x.id] });
+  }
+  function emit(col) { subs.filter(x => x.col === col).forEach(fire); }
+  function watch(x) { subs.push(x); if (cache[x.col]) fire(x); else refresh(x.col); return () => { const i = subs.indexOf(x); if (i >= 0) subs.splice(i, 1); }; }
+  const all = () => [...new Set(subs.map(x => x.col))].forEach(refresh);
+  setInterval(all, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) all(); });
+  const put = (col, id, d) => { (cache[col] = cache[col] || {})[id] = d; emit(col); };
+  return {
+    refreshAll: all,
+    collection(col) {
+      return {
+        onSnapshot(cb, err) { return watch({ col, id: null, cb, err }); },
+        async add(obj) {
+          const id = "s" + Date.now() + Math.random().toString(36).slice(2, 6);
+          const { error } = await sb.from("compartido").insert({ app, coleccion: col, id, datos: obj });
+          if (error) throw error; put(col, id, obj); return { id };
+        },
+        doc(id) {
+          return {
+            onSnapshot(cb, err) { return watch({ col, id, cb, err }); },
+            async set(obj) {
+              if (!sbAdmin) throw soloLectura();
+              const { error } = await sb.from("compartido").upsert({ app, coleccion: col, id, datos: obj, actualizado: new Date().toISOString() });
+              if (error) throw error; put(col, id, obj);
+            },
+            async delete() {
+              if (!sbAdmin) throw soloLectura();
+              const { error } = await sb.from("compartido").delete().eq("app", app).eq("coleccion", col).eq("id", id);
+              if (error) throw error; if (cache[col]) { delete cache[col][id]; emit(col); }
+            }
+          };
+        }
+      };
+    }
+  };
+}
+let sbRef = null;
+const cap = name => (window.claude && typeof window.claude.use === "function") ? window.claude.use(name).catch(() => null)
+  : Promise.resolve(name === "db" && sb ? (sbRef = sbRef || sbDb("diaria")) : null);
 async function saveFile(filename, blob) {
   const dl = await cap("downloads");
   if (dl) { try { await dl.save({ filename, data: blob }); toast("Archivo listo"); } catch (e) { if (e && e.code !== "declined") toast("No se pudo descargar en esta vista"); } return; }
@@ -883,14 +955,14 @@ async function writeCfg() {
   cfgPending = false; LS.set("cfg", cfg); if (!dbRef) return;
   cfgBusy++;
   try { await dbRef.db.collection("config").doc("main").set(JSON.parse(JSON.stringify(cfg))); }
-  catch (e) { toast("No se pudo guardar el cambio en la base compartida" + (e && e.code ? ` (${e.code})` : "") + ". Quedó en este navegador."); }
+  catch (e) { if (e && e.code === "solo-lectura") return; toast("No se pudo guardar el cambio en la base compartida" + (e && e.code ? ` (${e.code})` : "") + ". Quedó en este navegador."); }
   finally { cfgBusy--; }
 }
 const pushCfg = debounce(writeCfg, 250);
 const saveCfg = () => { cfgPending = true; LS.set("cfg", cfg); pushCfg(); };
 async function pushMes(mk) {
   LS.set("meses", meses);
-  if (dbRef) { try { await dbRef.db.collection("meses").doc(mk).set(JSON.parse(JSON.stringify(meses[mk]))); } catch (e) { toast("El mes quedó guardado solo en este navegador"); } }
+  if (dbRef) { try { await dbRef.db.collection("meses").doc(mk).set(JSON.parse(JSON.stringify(meses[mk]))); } catch (e) { toast(e && e.code === "solo-lectura" ? "Para que lo vea todo el equipo, entrá como Admin (abajo a la izquierda) y volvé a cargar el Excel" : "El mes quedó guardado solo en este navegador"); } }
 }
 async function dropMes(mk) { delete meses[mk]; LS.set("meses", meses); if (dbRef) { try { await dbRef.db.collection("meses").doc(mk).delete(); } catch (e) {} } }
 async function initStore() {
@@ -1726,7 +1798,29 @@ function renderAll() {
 }
 Object.keys(TABLES).forEach(renderTable); bindFields(); renderAll(); renderLideres();
 setInterval(renderClock, 15000);
-initStore(); initLink();
+initAdmin(); initStore(); initLink();
+/* ===== ingreso de administrador ===== */
+function initAdmin() {
+  const btn = $("#admBtn"), dlg = $("#admDlg");
+  if (!sb) { $("#adm").hidden = true; return; }
+  const pintar = () => { btn.textContent = sbAdmin ? "Admin conectado · Salir" : "Admin"; btn.style.color = sbAdmin ? "var(--cyan,#2bc4d8)" : ""; };
+  const alEntrar = () => {                                   // sube lo que el admin tenga cargado en este navegador
+    if (!dbRef) return; writeCfg(); Object.keys(meses).forEach(mk => pushMes(mk));
+  };
+  sb.auth.getSession().then(({ data }) => { sbAdmin = !!(data && data.session); pintar(); if (sbAdmin) setTimeout(alEntrar, 1500); });
+  btn.onclick = async () => {
+    if (sbAdmin) { await sb.auth.signOut(); sbAdmin = false; pintar(); toast("Saliste del modo administrador"); return; }
+    $("#admErr").hidden = true; dlg.showModal(); $("#admMail").focus();
+  };
+  $("#admCancel").onclick = () => dlg.close();
+  $("#admForm").onsubmit = async ev => {
+    ev.preventDefault();
+    const { error } = await sb.auth.signInWithPassword({ email: $("#admMail").value.trim(), password: $("#admPass").value });
+    if (error) { $("#admErr").textContent = "Correo o contraseña incorrectos"; $("#admErr").hidden = false; return; }
+    sbAdmin = true; $("#admPass").value = ""; dlg.close(); pintar();
+    toast("Modo administrador: lo que cargues lo ve todo el equipo"); alEntrar();
+  };
+}
 go((location.hash || "").slice(1) || LS.get("tab", "inicio"));
 
 </script>
