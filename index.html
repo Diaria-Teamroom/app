@@ -981,8 +981,12 @@ async function initStore() {
     });
     db.collection("meses").onSnapshot(snap => {
       const remote = Object.fromEntries(snap.docs.map(d => [d.id, d.data()]));
-      Object.keys(meses).forEach(mk => { if (!remote[mk]) pushMes(mk); });   // sube lo que solo estaba local
-      const merged = Object.assign({}, remote, Object.fromEntries(Object.entries(meses).filter(([k]) => !remote[k])));
+      // por cada mes se queda con la versión más nueva (la que se leyó del Excel más recientemente)
+      const merged = Object.assign({}, remote);
+      Object.entries(meses).forEach(([mk, loc]) => {
+        const rem = remote[mk];
+        if (!rem || (loc && (loc.cargado || 0) > (rem.cargado || 0))) { merged[mk] = loc; if (sbAdmin || !sb) pushMes(mk); }
+      });
       if (JSON.stringify(merged) === JSON.stringify(meses)) return;
       meses = merged; LS.set("meses", meses); renderAll();
     });
