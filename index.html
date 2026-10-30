@@ -400,6 +400,24 @@ dialog h2{font-size:22px;color:#8baadd;margin-bottom:6px}
 .mes-chip b{font-family:var(--display);font-weight:800;letter-spacing:.08em;font-size:17px;text-transform:uppercase}
 .mes-chip.on{border-color:#12617b;background:#0c2536}
 
+
+/* ---------- gráfico grande ---------- */
+.kpi[data-zoom]{cursor:pointer;transition:border-color .15s,transform .15s}
+.kpi[data-zoom]:hover{border-color:#12617b;transform:translateY(-1px)}
+.zoomdlg{width:min(1080px,calc(100vw - 32px));max-height:calc(100vh - 32px);padding:22px 24px;box-shadow:0 0 50px #16dcf722}
+.zchips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.zc{display:grid;gap:3px;padding:11px 13px;background:#0a1322;border:1px solid var(--line);border-radius:12px;min-width:0}
+.zc span{font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+.zc b{font-family:var(--num);font-weight:700;font-size:28px;line-height:1.05;color:var(--text);font-variant-numeric:tabular-nums}
+.zc small{font-size:12.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zc.c-ok b{color:var(--green)} .zc.c-adf b{color:var(--red)} .zc.c-warn b{color:var(--orange)}
+.zc.main.c-ok{border-color:#27e58a88;background:#0d2a24} .zc.main.c-adf{border-color:#ff4f5888;background:#2a0d12}
+.zsvg{width:100%;height:auto;display:block}
+.zsvg text{font-family:var(--num);font-size:12px;fill:var(--dim)}
+.zleg{display:flex;gap:6px 18px;flex-wrap:wrap;color:var(--dim);font-size:13px;margin-top:6px}
+.zleg i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:6px}
+@media (max-width:700px){.zchips{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 @media (max-width:1100px){
   .cols2,.board{grid-template-columns:1fr}
   .glinks{grid-template-columns:1fr}
@@ -781,6 +799,15 @@ dialog h2{font-size:22px;color:#8baadd;margin-bottom:6px}
     <div id="focosFields"></div>
     <div class="row" style="justify-content:space-between"><button type="button" class="btn sm" id="focosRestore">Restaurar lista original</button><div class="row"><button type="button" class="btn" data-close>Cancelar</button><button type="submit" class="btn solid">Guardar</button></div></div>
   </form>
+</dialog>
+
+<dialog id="zoomDlg" class="zoomdlg">
+  <div class="grid" style="gap:14px">
+    <div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:nowrap"><div><div class="eyebrow" id="zoomCat"></div><h2 id="zoomNm" style="font-size:28px;color:var(--text);margin-top:4px"></h2></div><button class="x" id="zoomX" title="Cerrar">×</button></div>
+    <div class="zchips" id="zoomChips"></div>
+    <div class="tabs" id="zoomTabs"><button class="tab" data-z="dia">Por día</button><button class="tab" data-z="sem">Por semana</button></div>
+    <div id="zoomChart"></div>
+  </div>
 </dialog>
 
 <dialog id="confirmDlg">
@@ -1316,7 +1343,7 @@ function kpiCard(m, k, t, conTR) {
   const xd = vDia(k, view.dia), xs = vSem(m, k, view.dia), xm = vMes(m, k, view.dia), e = estado(k, xd), es = estado(k, xs);
   const act = e !== "adf" ? "" : fueraTrigger(k, xd) ? `<button class="act" data-tool="adf" data-k="${esc(k.key)}">Abrir ADF →</button>` : `<button class="act" data-tool="pq" data-k="${esc(k.key)}">5 Por Qué →</button>`;
   const un = /^#$|%|hora/i.test(k.un) ? "" : k.un;
-  return `<div class="kpi ${e}">${conTR ? "" : `<div class="cat">${esc(k.cat)}</div>`}<div class="nm">${esc(k.nombre)}</div>${k.sub ? `<div class="sub2">${esc(k.sub)}</div>` : ""}
+  return `<div class="kpi ${e}" data-zoom="${esc(k.key)}" title="Tocá para ver el gráfico grande">${conTR ? "" : `<div class="cat">${esc(k.cat)}</div>`}<div class="nm">${esc(k.nombre)}</div>${k.sub ? `<div class="sub2">${esc(k.sub)}</div>` : ""}
     <div class="kb1"><div class="kr1"><span class="ktg">Target <b>${esc(tw(k.tgt))}</b>${k.trg ? `<small>Trigger ${esc(k.trg.w)}</small>` : ""}</span><span class="kn c-${e}" title="Real del ${esc(dmy(view.dia))}">${esc(tw(xd))}${un ? `<i>${esc(un)}</i>` : ""}</span></div>${spark(m, k, view.dia)}</div>
     <div class="kb2"><span title="${k.agg === "sum" ? "Total de la semana" : "Promedio de la semana"}">Semana <b class="c-${es}">${esc(tw(xs))}</b>${srcMark(xs)}</span></div>
     <div class="foot"><span class="mesl">Mes <b class="c-${estado(k, xm)}">${esc(tw(xm))}</b>${srcMark(xm)}</span>${act}</div>
@@ -1800,6 +1827,84 @@ function renderAll() {
   renderClock(); renderHome(); renderConfig(); renderTablero(); renderDiaria(); renderIndic(); renderQR(); renderLinks(); renderHist();
   $("#kpiNames").innerHTML = (M()?.kpis || []).map(k => `<option value="${esc(nombreCompleto(k))}">`).join("");
 }
+
+/* ===== gráfico grande al tocar una tarjeta ===== */
+let zoomK = null, zoomModo = "dia";
+document.addEventListener("click", e => {
+  const c = e.target.closest(".kpi[data-zoom]"); if (!c || e.target.closest("button,a,input,select,textarea")) return;
+  const m = M(); const k = m && resolve(m, c.dataset.zoom); if (!k) return;
+  zoomK = k.key; zoomModo = "dia"; renderZoom(); $("#zoomDlg").showModal();
+});
+$("#zoomDlg").addEventListener("click", e => { if (e.target.id === "zoomDlg") $("#zoomDlg").close(); });
+$("#zoomX").onclick = () => $("#zoomDlg").close();
+function renderZoom() {
+  const m = M(), k = m && resolve(m, zoomK); if (!k) return;
+  const xd = vDia(k, view.dia), xs = vSem(m, k, view.dia), xm = vMes(m, k, view.dia), e = estado(k, xd), es = estado(k, xs), em = estado(k, xm);
+  const ws = semanaDe(m, view.dia), up = sentido(k) === "up", reg = reglaUser(k);
+  const regTxt = reg === "none" ? "Sin color" : (reg === "max" || (!reg && regla(k) === "cap")) ? "Verde hasta el máximo del rango" : up ? "Mayor o igual = verde" : "Menor o igual = verde";
+  $("#zoomCat").textContent = k.cat + (k.sub ? " · " + k.sub : "");
+  $("#zoomNm").textContent = k.nombre;
+  const chip = (lab, val, cls, sub) => `<div class="zc ${cls}"><span>${lab}</span><b>${esc(val)}</b><small>${esc(sub)}</small></div>`;
+  $("#zoomChips").innerHTML = chip("Target", tw(k.tgt), "", (k.trg ? "Trigger " + k.trg.w + " · " : "") + regTxt)
+    + chip("Real · " + diaDe(view.dia).slice(0, 3) + " " + dm(view.dia), tw(xd), "main c-" + e, xd ? EST[e] : "Sin dato del día")
+    + chip("Semana" + (ws ? " · " + ws.id : ""), tw(xs), "c-" + es, ws ? dm(ws.dias[0]) + " – " + dm(ws.dias[ws.dias.length - 1]) : "")
+    + chip("Mes", tw(xm), "c-" + em, (k.agg === "sum" ? "Total" : "Promedio") + " al " + dm(view.dia));
+  $$("#zoomTabs .tab").forEach(b => { b.setAttribute("aria-selected", b.dataset.z === zoomModo); b.onclick = () => { zoomModo = b.dataset.z; renderZoom(); }; });
+  $("#zoomChart").innerHTML = zoomModo === "sem" ? zoomSemanas(m, k) : zoomDias(m, k);
+}
+const ZC = { ok: "#27e58a", warn: "#ff8c25", adf: "#ff4f58", sd: "#5975a5" }, ZT = { ok: "#9bf7c6", warn: "#ffd0a1", adf: "#ffb6ba", sd: "#9ab0d2" };
+function zoomEscala(k, vals) {
+  const r = rango(k), f = r && r.pct && vals.every(v => Math.abs(v) <= 2) ? 100 : 1;
+  const refs = r ? [r.lo / f, r.hi / f] : isNum(k.tgt?.v) ? [k.tgt.v] : [];
+  const all = vals.concat(refs, isNum(k.trg?.v) ? [k.trg.v] : []); let lo = Math.min(...all), hi = Math.max(...all);
+  if (lo > 0 && lo < hi * 0.5) lo = 0; const pad = (hi - lo || Math.abs(hi) || 1) * 0.12; hi += pad; if (lo !== 0) lo -= pad;
+  return { lo, hi, refs };
+}
+function zoomEjes(k, s, W, H, L, R, T, B) {
+  const Y = v => T + (H - T - B) * (1 - (v - s.lo) / (s.hi - s.lo)); let g = "";
+  const raw = (s.hi - s.lo) / 4, p10 = Math.pow(10, Math.floor(Math.log10(raw || 1))), step = [1, 2, 2.5, 5, 10].map(x => x * p10).find(x => x >= raw) || raw;
+  const esHora = /h:mm|F400/i.test(k.zd || k.zs || "");
+  const st = esHora ? 1 / 24 / 4 * Math.max(1, Math.round(raw * 96)) : step;
+  for (let v = Math.ceil(s.lo / st) * st; v <= s.hi + 1e-9; v += st) { g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1d2d47"/><text x="${L - 8}" y="${Y(v) + 4}" text-anchor="end">${esc(fmtLike(+v.toFixed(10), k.zd || k.zs))}</text>`; }
+  s.refs.forEach(v => g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#ff4f58" stroke-width="1.6" stroke-dasharray="7 5"/>`);
+  if (isNum(k.trg?.v)) g += `<line x1="${L}" x2="${W - R}" y1="${Y(k.trg.v)}" y2="${Y(k.trg.v)}" stroke="#ff8c25" stroke-width="1.2" stroke-dasharray="2 4"/>`;
+  return { g, Y };
+}
+function zoomDias(m, k) {
+  const dias = m.dias, pts = dias.map((d, i) => ({ d, i, x: k.d[d] })).filter(p => p.x && isNum(p.x.v));
+  if (!pts.length) return `<div class="empty">Este KPI no tiene datos cargados en ${esc(mesLabel(m))}.</div>`;
+  const W = 1000, H = 340, L = 56, R = 12, T = 30, B = 40, s = zoomEscala(k, pts.map(p => p.x.v)), { g: ejes, Y } = zoomEjes(k, s, W, H, L, R, T, B);
+  const cw = (W - L - R) / dias.length, X = i => L + cw * (i + .5); let g = "";
+  m.semanas.filter(w => w.dias.length).forEach((w, j) => {
+    const a = dias.indexOf(w.dias[0]), b = dias.indexOf(w.dias[w.dias.length - 1]), x0 = X(a) - cw / 2, x1 = X(b) + cw / 2, sv = vSem(m, k, w.dias[0]);
+    g += `<rect x="${x0}" y="${T - 22}" width="${x1 - x0}" height="${H - T - B + 22}" fill="${j % 2 ? "#0d1a2e" : "#0a1526"}"/><text x="${(x0 + x1) / 2}" y="${T - 7}" text-anchor="middle" style="fill:#16dcf7;font-weight:700">${esc(w.id)}${sv ? " · " + esc(sv.w) : ""}</text>`;
+    if (sv && isNum(sv.v)) g += `<line x1="${x0 + 5}" x2="${x1 - 5}" y1="${Y(sv.v)}" y2="${Y(sv.v)}" stroke="#ffc000" stroke-width="2" stroke-dasharray="6 4"/>`;
+  });
+  g += ejes;
+  g += `<path d="${pts.map((p, j) => (j ? "L" : "M") + X(p.i).toFixed(1) + "," + Y(p.x.v).toFixed(1)).join("")}" fill="none" stroke="#16dcf7" stroke-width="2.4"/>`;
+  pts.forEach(p => { const e = estado(k, p.x); g += `<circle cx="${X(p.i)}" cy="${Y(p.x.v)}" r="5" fill="${ZC[e]}" stroke="#050b16" stroke-width="2"/><text x="${X(p.i)}" y="${Y(p.x.v) - 11}" text-anchor="middle" style="fill:${ZT[e]};font-weight:600">${esc(p.x.w)}</text>`; });
+  const sel = pts.find(p => p.d === view.dia); if (sel) g += `<circle cx="${X(sel.i)}" cy="${Y(sel.x.v)}" r="10" fill="none" stroke="${ZC[estado(k, sel.x)]}" stroke-width="2"/>`;
+  dias.forEach((d, i) => g += `<text x="${X(i)}" y="${H - B + 18}" text-anchor="middle" style="${d === view.dia ? "fill:#edf5ff;font-weight:700" : ""}">${d.slice(8)}</text>`);
+  return `<svg viewBox="0 0 ${W} ${H}" class="zsvg" role="img" aria-label="Evolución diaria de ${esc(k.nombre)}">${g}</svg>
+    <div class="zleg"><span><i style="background:#16dcf7"></i>Valor del día</span><span><i style="background:#ff4f58"></i>Target ${esc(tw(k.tgt))}</span>${k.trg ? `<span><i style="background:#ff8c25"></i>Trigger ${esc(k.trg.w)}</span>` : ""}<span><i style="background:#ffc000"></i>${k.agg === "sum" ? "Total" : "Promedio"} de la semana</span><span><b style="color:#27e58a">●</b> cumple · <b style="color:#ff4f58">●</b> no cumple</span></div>`;
+}
+function zoomSemanas(m, k) {
+  const ws = m.semanas.filter(w => w.dias.length).map(w => ({ w, x: vSem(m, k, w.dias[0]) })), con = ws.filter(o => o.x && isNum(o.x.v));
+  if (!con.length) return `<div class="empty">Este KPI no tiene semanas con datos en ${esc(mesLabel(m))}.</div>`;
+  const W = 1000, H = 340, L = 56, R = 12, T = 20, B = 46, s = zoomEscala(k, con.map(o => o.x.v)); if (s.lo > 0) s.lo = 0;
+  const { g: ejes, Y } = zoomEjes(k, s, W, H, L, R, T, B), cw = (W - L - R) / ws.length, bw = Math.min(110, cw * .55); let g = ejes;
+  const act = (semanaDe(m, view.dia) || {}).id;
+  ws.forEach((o, i) => {
+    const cx = L + cw * (i + .5);
+    if (o.x && isNum(o.x.v)) { const e = estado(k, o.x), y = Y(o.x.v), y0 = Y(Math.max(s.lo, 0));
+      g += `<rect x="${cx - bw / 2}" y="${Math.min(y, y0)}" width="${bw}" height="${Math.max(2, Math.abs(y0 - y))}" rx="6" fill="${ZC[e]}" opacity="${o.w.id === act ? 1 : .75}"/><text x="${cx}" y="${y - 10}" text-anchor="middle" style="fill:${ZT[e]};font-weight:700;font-size:15px">${esc(o.x.w)}${o.x.src !== "xl" ? (o.x.src === "aprox" ? " ≈" : " *") : ""}</text>`; }
+    else g += `<text x="${cx}" y="${Y(s.lo) - 10}" text-anchor="middle">sin datos</text>`;
+    g += `<text x="${cx}" y="${H - B + 20}" text-anchor="middle" style="fill:${o.w.id === act ? "#16dcf7" : ""};font-weight:700">${esc(o.w.id)}</text><text x="${cx}" y="${H - B + 36}" text-anchor="middle">${esc(dm(o.w.dias[0]))}–${esc(dm(o.w.dias[o.w.dias.length - 1]))}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" class="zsvg" role="img" aria-label="Evolución semanal de ${esc(k.nombre)}">${g}</svg>
+    <div class="zleg"><span><i style="background:#ff4f58"></i>Target ${esc(tw(k.tgt))}</span><span>Barra verde cumple · roja no cumple · la semana en curso va más fuerte</span></div>`;
+}
+
 Object.keys(TABLES).forEach(renderTable); bindFields(); renderAll(); renderLideres();
 setInterval(renderClock, 15000);
 initAdmin(); initStore(); initLink();
