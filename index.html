@@ -1197,10 +1197,17 @@ function aggr(k, ids) {
 }
 /* valor del día, de la semana y del mes. src: xl = tal cual del Excel, calc = calculado de los días con la misma regla que el Excel, aprox = promedio simple */
 const tidy = w => (typeof w === "string" && /^-?\d+\.\d{3,}$/.test(w)) ? String(+(+w).toFixed(2)) : w;
+/* la semana se muestra con el mismo formato que los días (ej. 89% y no 0.89) */
+function igualFormato(k, c) {
+  const z = k.zd || "";
+  if (isNum(c.v) && /%/.test(z) && !/%/.test(c.w || "")) return fmtLike(c.v, z);
+  if (isNum(c.v) && /h:mm|F400/i.test(z) && !/:/.test(c.w || "")) return fmtLike(c.v, z);
+  return tidy(c.w);
+}
 function vDia(k, iso) { const c = k.d[iso]; return c ? { v: c.v, w: tidy(c.w), src: "xl" } : null; }
 function vSem(m, k, iso) {
   const w = semanaDe(m, iso); if (!w) return null;
-  const c = k.s[w.id]; if (c) return { v: c.v, w: tidy(c.w), src: "xl", id: w.id };
+  const c = k.s[w.id]; if (c) return { v: c.v, w: igualFormato(k, c), src: "xl", id: w.id };
   const v = aggr(k, w.dias); if (v == null) return null;
   return { v, w: fmtLike(v, k.zs || k.zd), src: k.agg === "other" ? "aprox" : "calc", id: w.id };
 }
@@ -1374,10 +1381,14 @@ function kpiCardSem(m, k, w) {
   const sems = m.semanas.filter(x => x.dias.length), i = sems.indexOf(w), xs = w ? vSem(m, k, w.dias[0]) : null, prev = i > 0 ? vSem(m, k, sems[i - 1].dias[0]) : null;
   const e = estado(k, xs), xm = vMes(m, k, lastDia(m)), un = /^#$|%|hora/i.test(k.un) ? "" : k.un;
   const act = e !== "adf" || k.soloSemanal ? "" : `<button class="act" data-tool="pq" data-k="${esc(k.key)}">5 Por Qué →</button>`;
-  const barras = sems.map(x => ({ x, v: vSem(m, k, x.dias[0]) })), con = barras.filter(b => b.v && isNum(b.v.v));
+  // mismo gráfico de línea que las otras tarjetas: días del mes hasta el fin de la semana elegida (o las semanas, si el KPI no está en la Diaria)
+  const hasta = w ? (w.dias.filter(d => d <= lastDia(m)).slice(-1)[0] || w.dias[w.dias.length - 1]) : lastDia(m);
   let mini = "";
-  if (con.length) { const vals = con.map(b => b.v.v).concat(isNum(k.tgt?.v) ? [k.tgt.v] : []), hi = Math.max(...vals, 0), lo = Math.min(...vals, 0), Hh = 34, Ww = 110, bw = Ww / sems.length;
-    mini = `<svg class="spark" viewBox="0 0 ${Ww} ${Hh}" preserveAspectRatio="none" aria-hidden="true">${barras.map((b, j) => { if (!b.v || !isNum(b.v.v)) return ""; const hgt = Math.max(2, (Hh - 4) * (b.v.v - lo) / ((hi - lo) || 1)); return `<rect x="${j * bw + bw * .18}" y="${Hh - hgt}" width="${bw * .64}" height="${hgt}" rx="2" fill="${colorEst(estado(k, b.v))}" opacity="${b.x === w ? 1 : .45}"/>`; }).join("")}</svg>`; }
+  if (!k.soloSemanal) mini = spark(m, k, hasta);
+  else { const pts = sems.map((x, j) => ({ j, v: vSem(m, k, x.dias[0]) })).filter(p => p.v && isNum(p.v.v));
+    if (pts.length > 1) { const W2 = 220, H2 = 38, t = k.tgt?.v, vs = pts.map(p => p.v.v).concat(isNum(t) ? [t] : []); let lo = Math.min(...vs), hi = Math.max(...vs); if (hi === lo) { hi += 1; lo -= 1; }
+      const X = j => 4 + (W2 - 8) * j / Math.max(1, sems.length - 1), Y = v => 4 + (H2 - 8) * (1 - (v - lo) / (hi - lo));
+      mini = `<svg class="spark" viewBox="0 0 ${W2} ${H2}" preserveAspectRatio="none" aria-hidden="true">${isNum(t) ? `<line x1="4" x2="${W2 - 4}" y1="${Y(t)}" y2="${Y(t)}" stroke="#ff4f58" stroke-opacity=".55" stroke-dasharray="4 3" stroke-width="1"/>` : ""}<path d="${pts.map((p, n) => `${n ? "L" : "M"}${X(p.j).toFixed(1)},${Y(p.v.v).toFixed(1)}`).join("")}" fill="none" stroke="#16dcf7" stroke-width="1.8" vector-effect="non-scaling-stroke"/>${pts.map(p => `<circle cx="${X(p.j)}" cy="${Y(p.v.v)}" r="${sems[p.j] === w ? 3.4 : 1.8}" fill="${colorEst(estado(k, p.v))}"/>`).join("")}</svg>`; } }
   return `<div class="kpi ${e}" data-zoom="${esc(k.key)}" title="Tocá para ver el gráfico grande"><div class="nm">${esc(k.nombre)}</div>${k.sub ? `<div class="sub2">${esc(k.sub)}</div>` : ""}
     <div class="kb1"><div class="kr1"><span class="ktg">Target <b>${esc(tw(k.tgt))}</b>${k.trg ? `<small>Trigger ${esc(k.trg.w)}</small>` : ""}</span><span class="kn c-${e}${tw(xs).length > 5 ? " long" : ""}" title="${w ? esc(w.id) : ""}">${esc(tw(xs))}${un ? `<i>${esc(un)}</i>` : ""}</span></div>${mini}</div>
     <div class="kb2"><span>${w ? esc(w.id) + " · " + esc(dm(w.dias[0])) + "–" + esc(dm(w.dias[w.dias.length - 1])) : ""}</span>${prev ? `<span>Anterior <b class="c-${estado(k, prev)}">${esc(prev.w)}</b></span>` : ""}</div>
