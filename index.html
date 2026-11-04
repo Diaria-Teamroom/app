@@ -568,6 +568,7 @@ dialog h2{font-size:22px;color:#8baadd;margin-bottom:6px}
         <div class="tabs" id="dPeriod" role="tablist"></div>
         <div class="row"><div class="tabs" id="dModo"></div><div class="tabs" id="dFilter"></div><input type="search" id="dSearch" placeholder="Buscar KPI" style="width:200px;min-height:38px"></div>
       </div>
+      <div class="row" id="dSemPick" hidden></div>
       <div class="sumline" id="dSum"></div>
       <div class="tw mx" id="dTabla"><table class="matrix" id="matrix"></table></div>
       <div id="dCards" class="grid" style="gap:20px" hidden></div>
@@ -1138,11 +1139,33 @@ function parseDiaria(wb, fileName) {
   // KPIs que también están en la solapa Semanal (para el filtro)
   let semanal = [];
   const sh2 = wb.SheetNames.find(n => /^semanal$/i.test(norm(n)));
+  let semRows = [], semCols = [];
   if (sh2) { const w2 = wb.Sheets[sh2], r2 = XLSX.utils.decode_range(w2["!ref"]), names = new Set();
-    for (let r = 0; r <= Math.min(r2.e.r, 120); r++) { const x = w2[XLSX.utils.encode_cell({ r, c: kc })]; if (x && x.t === "s") names.add(nkey(x.v)); }
-    semanal = kpis.filter(k => names.has(nkey(k.nombre))).map(k => k.key); }
+    const at2 = (r, c) => w2[XLSX.utils.encode_cell({ r, c })];
+    for (let r = 0; r <= Math.min(r2.e.r, 120); r++) { const x = at2(r, kc); if (x && x.t === "s") names.add(nkey(x.v)); }
+    semanal = kpis.filter(k => names.has(nkey(k.nombre))).map(k => k.key);
+    // todas las filas de la solapa Semanal, en su orden, con sus columnas de semana
+    let h2 = -1; for (let r = 0; r <= Math.min(r2.e.r, 40) && h2 < 0; r++) { const x = at2(r, kc); if (x && x.t === "s" && /^kpi$/i.test(norm(x.v))) h2 = r; }
+    if (h2 >= 0) {
+      const c2 = { un: -1, trg: -1, tgt: -1 };
+      for (let c = kc + 1; c <= Math.min(r2.e.c, kc + 40); c++) { const x = at2(h2, c); if (!x) continue; const t = norm(x.w ?? x.v).toUpperCase();
+        if (t === "UN") c2.un = c; else if (t === "TRIGGER") c2.trg = c; else if (t === "TARGET") c2.tgt = c;
+        else if (/^\d{1,2}\s*AL\s*\d{1,2}$/.test(t)) semCols.push({ c, lab: norm(x.w ?? x.v) }); }
+      let cat2 = "", byKey = new Set();
+      for (let r = h2 + 1; r <= Math.min(r2.e.r, h2 + 120); r++) {
+        const cx = kc > 0 ? at2(r, kc - 1) : null; if (cx && cx.t === "s" && norm(cx.v)) cat2 = norm(cx.v).toUpperCase();
+        const nx = at2(r, kc); if (!nx || nx.t !== "s" || !norm(nx.v)) continue;
+        const nombre = norm(nx.v), match = kpis.find(k => nkey(k.nombre) === nkey(nombre) && !byKey.has(k.key));
+        if (match) byKey.add(match.key);
+        const pick = c => { if (c < 0) return null; const o = cellOut(at2(r, c)); return o ? { v: o.v, w: o.w } : null; };
+        let zs = ""; const vals = semCols.map(sc => { const x = at2(r, sc.c), o = cellOut(x); if (o && o.z && o.z !== "General") zs = o.z; return o ? { v: o.v, w: o.w } : null; });
+        semRows.push({ nombre, cat: cat2 || "GENERAL", key: match ? match.key : null, un: c2.un >= 0 ? (cellOut(at2(r, c2.un))?.w || "") : "", trg: pick(c2.trg), tgt: pick(c2.tgt), vals, zs });
+      }
+    }
+  }
   const [y, m] = mk.split("-").map(Number);
   return { mk, mes: mesTxt || MESES[m - 1].toUpperCase(), anio: y, archivo: fileName, hoja: shName, cargado: Date.now(), disparador,
+    semRows, semCols: semCols.map(s => s.lab),
     dias: dias.map(d => d.iso), semanas: semanas.map(w => ({ id: w.id, dias: w.dias })), semanal, kpis };
 }
 
@@ -1245,6 +1268,7 @@ const colorEst = e => ({ ok: "var(--green)", warn: "var(--orange)", adf: "var(--
 const tw = x => x ? x.w : "–";
 function resolve(m, key) {
   if (!m) return null;
+  if (String(key).startsWith("SEMANAL|")) return PSEUDO[key] || (filasSemanal(m), PSEUDO[key]) || null;
   const k = m.kpis.find(x => x.key === key); if (k) return k;
   const [, nombre, occ] = key.split("|"); return m.kpis.find(x => x.nombre === nombre && String(x.occ) === occ) || null;
 }
@@ -1339,6 +1363,19 @@ function renderCtx() {
   if (sess.pres) p.push(`<span class="pill">Presentes <b>${esc(sess.pres)}</b></span>`);
   $("#ctx").innerHTML = p.join("");
 }
+function kpiCardSem(m, k, w) {
+  const sems = m.semanas.filter(x => x.dias.length), i = sems.indexOf(w), xs = w ? vSem(m, k, w.dias[0]) : null, prev = i > 0 ? vSem(m, k, sems[i - 1].dias[0]) : null;
+  const e = estado(k, xs), xm = vMes(m, k, lastDia(m)), un = /^#$|%|hora/i.test(k.un) ? "" : k.un;
+  const act = e !== "adf" || k.soloSemanal ? "" : `<button class="act" data-tool="pq" data-k="${esc(k.key)}">5 Por Qué →</button>`;
+  const barras = sems.map(x => ({ x, v: vSem(m, k, x.dias[0]) })), con = barras.filter(b => b.v && isNum(b.v.v));
+  let mini = "";
+  if (con.length) { const vals = con.map(b => b.v.v).concat(isNum(k.tgt?.v) ? [k.tgt.v] : []), hi = Math.max(...vals, 0), lo = Math.min(...vals, 0), Hh = 34, Ww = 110, bw = Ww / sems.length;
+    mini = `<svg class="spark" viewBox="0 0 ${Ww} ${Hh}" preserveAspectRatio="none" aria-hidden="true">${barras.map((b, j) => { if (!b.v || !isNum(b.v.v)) return ""; const hgt = Math.max(2, (Hh - 4) * (b.v.v - lo) / ((hi - lo) || 1)); return `<rect x="${j * bw + bw * .18}" y="${Hh - hgt}" width="${bw * .64}" height="${hgt}" rx="2" fill="${colorEst(estado(k, b.v))}" opacity="${b.x === w ? 1 : .45}"/>`; }).join("")}</svg>`; }
+  return `<div class="kpi ${e}" data-zoom="${esc(k.key)}" title="Tocá para ver el gráfico grande"><div class="nm">${esc(k.nombre)}</div>${k.sub ? `<div class="sub2">${esc(k.sub)}</div>` : ""}
+    <div class="kb1"><div class="kr1"><span class="ktg">Target <b>${esc(tw(k.tgt))}</b>${k.trg ? `<small>Trigger ${esc(k.trg.w)}</small>` : ""}</span><span class="kn c-${e}" title="${w ? esc(w.id) : ""}">${esc(tw(xs))}${un ? `<i>${esc(un)}</i>` : ""}</span></div>${mini}</div>
+    <div class="kb2"><span>${w ? esc(w.id) + " · " + esc(dm(w.dias[0])) + "–" + esc(dm(w.dias[w.dias.length - 1])) : ""}</span>${prev ? `<span>Anterior <b class="c-${estado(k, prev)}">${esc(prev.w)}</b></span>` : ""}</div>
+    <div class="foot"><span class="mesl">${k.soloSemanal ? "Solo en la Semanal" : `Mes <b class="c-${estado(k, xm)}">${esc(tw(xm))}</b>${srcMark(xm)}`}</span>${act}</div></div>`;
+}
 function kpiCard(m, k, t, conTR) {
   const xd = vDia(k, view.dia), xs = vSem(m, k, view.dia), xm = vMes(m, k, view.dia), e = estado(k, xd), es = estado(k, xs);
   const act = e !== "adf" ? "" : fueraTrigger(k, xd) ? `<button class="act" data-tool="adf" data-k="${esc(k.key)}">Abrir ADF →</button>` : `<button class="act" data-tool="pq" data-k="${esc(k.key)}">5 Por Qué →</button>`;
@@ -1396,9 +1433,9 @@ function colsDe(m, per, dia) {
   else { cols.push({ t: "d", iso: dia }); const w = semanaDe(m, dia); if (w) cols.push({ t: "s", w }); }
   return cols;
 }
-function matrixHTML(m, rows, per, cols, expandable) {
+function matrixHTML(m, rows, per, cols, expandable, semElegida) {
   const L = lastDia(m), few = per !== "mes", hasta = per === "dia" ? view.dia : L;
-  const semAct = (semanaDe(m, L) || {}).id || "";
+  const semAct = semElegida || (semanaDe(m, L) || {}).id || "";
   const cellVal = (k, c) => c.t === "d" ? vDia(k, c.iso) : vSem(m, k, c.w.dias[0]);
   let html = `<thead><tr><th class="stk s1">Categoría</th><th class="stk s2">KPI</th><th>UN</th><th class="p">Trigger</th><th class="p">Target</th>${cols.map(c => c.t === "d"
       ? `<th class="p dh${c.iso === view.dia && !few ? " hl" : ""}${c.iso > L ? " fut" : ""}" data-day="${c.iso}" title="Ver este día">${esc(diaDe(c.iso).slice(0, 3))}<br>${esc(dm(c.iso))}</th>`
@@ -1409,13 +1446,24 @@ function matrixHTML(m, rows, per, cols, expandable) {
     const empty = !Object.keys(k.d).length, xm = vMes(m, k, hasta), open = expandable && k.key === openRow;
     html += `<tr class="kr${empty ? " empty" : ""}${open ? " open" : ""}" data-k="${esc(k.key)}">${j === 0 ? `<td class="cat stk s1" rowspan="${g.items.length + (expandable ? g.items.filter(x => x.key === openRow).length : 0)}">${esc(g.cat)}</td>` : ""}
       <td class="nm stk s2">${esc(k.nombre)}${k.sub ? `<small>${esc(k.sub)}</small>` : ""}</td><td class="un">${esc(k.un)}</td><td class="tg p">${esc(k.trg?.w || "")}</td><td class="tg p">${esc(k.tgt?.w || "")}</td>
-      ${cols.map(c => { const x = cellVal(k, c); return `<td class="p c-${estado(k, x)}${c.t === "s" ? " sc" : ""}${c.t === "d" && c.iso === view.dia && !few ? " hl" : ""}">${esc(x?.w || "")}${c.t === "s" ? srcMark(x) : ""}</td>`; }).join("")}
+      ${cols.map(c => { const x = cellVal(k, c); return `<td class="p c-${estado(k, x)}${c.t === "s" ? " sc" : ""}${c.t === "s" && per === "sem" && c.w.id === semAct ? " hl" : ""}${c.t === "d" && c.iso === view.dia && !few ? " hl" : ""}">${esc(x?.w || "")}${c.t === "s" ? srcMark(x) : ""}</td>`; }).join("")}
       <td class="p mc c-${estado(k, xm)}">${esc(xm?.w || "")}${srcMark(xm)}</td>
       ${few ? `<td class="sp">${empty ? '<span class="dim">Sin datos este mes</span>' : spark(m, k, hasta, 120, 30)}</td>` : ""}</tr>`;
     if (open) html += `<tr class="det"><td colspan="${ncol - 1}">${detalle(m, k)}</td></tr>`;
   }));
   if (!rows.length) html += `<tr><td colspan="${ncol}" class="dim" style="padding:18px">No hay KPIs con este filtro.</td></tr>`;
   return { html: html + "</tbody>", few };
+}
+let PSEUDO = {};
+function filasSemanal(m) {
+  const sems = m.semanas.filter(w => w.dias.length);
+  if (!m.semRows || !m.semRows.length) return m.kpis.filter(k => m.semanal.includes(k.key));
+  return m.semRows.map((r, i) => {
+    if (r.key) { const k = m.kpis.find(x => x.key === r.key); if (k) return Object.assign(Object.create(k), { cat: r.cat }); }   // valores de la Diaria, categoría como en la Semanal
+    const key = "SEMANAL|" + i + "|" + r.nombre, s = {};
+    r.vals.forEach((v, j) => { if (v && sems[j]) s[sems[j].id] = v; });
+    return PSEUDO[key] = { key, cat: r.cat, nombre: r.nombre, un: r.un, tgt: r.tgt, trg: r.trg, mtd: null, zd: r.zs, zs: r.zs, d: {}, s, agg: "avg", soloSemanal: true };
+  });
 }
 function renderDiaria() {
   const m = M();
@@ -1427,7 +1475,8 @@ function renderDiaria() {
   const L0 = lastDia(m), semAct = (semanaDe(m, L0) || semsConDias[semsConDias.length - 1] || {}).id || "";
   $("#dMes").textContent = "· " + mesLabel(m); $("#dTitle").textContent = view.per === "sem" ? "Semanal" : "Diaria de Logística";
   // pestañas: mes completo · cada semana · día
-  const tabs = [["mes", "", "Mes completo"], ["sem", "", `Semanal${m.semanal.length ? ` (${m.semanal.length})` : ""}`], ["dia", "", `Día ${dm(view.dia)}`]];
+  const semFilas = filasSemanal(m);
+  const tabs = [["mes", "", "Mes completo"], ["sem", "", `Semanal (${semFilas.length})`], ["dia", "", `Día ${dm(view.dia)}`]];
   $("#dPeriod").innerHTML = tabs.map(([p, id, l]) => `<button class="tab" role="tab" style="min-height:38px;padding:0 13px;font-size:14px" aria-selected="${view.per === p}" data-p="${p}" data-s="${id}">${esc(l)}</button>`).join("");
   $$("#dPeriod .tab").forEach(b => b.onclick = () => { const was = view.per; view.per = b.dataset.p;
     saveView(); renderDiaria(); renderDayPick($("#dayPickD"), true); });
@@ -1435,19 +1484,23 @@ function renderDiaria() {
   const hasta = view.per === "dia" ? view.dia : L;
   const cellVal = (k, c) => c.t === "d" ? vDia(k, c.iso) : vSem(m, k, c.w.dias[0]);
   // valor de referencia para resumen y filtro: día elegido, la semana elegida o el mes
-  const wAct = m.semanas.find(w => w.id === semAct);
+  if (!semsConDias.some(w => w.id === view.semSel)) view.semSel = semAct;
+  const semSel = view.per === "sem" ? view.semSel : semAct, wAct = m.semanas.find(w => w.id === semSel);
+  $("#dSemPick").hidden = view.per !== "sem";
+  $("#dSemPick").innerHTML = view.per !== "sem" ? "" : `<span class="lab" style="margin-right:4px">Ver semana</span>` + semsConDias.map(w => `<button class="tab" style="min-height:34px;padding:0 12px;font-size:13px" aria-selected="${w.id === semSel}" data-w="${w.id}">${esc(w.id)} <small style="opacity:.7;font-weight:600">${esc(dm(w.dias[0]))}–${esc(dm(w.dias[w.dias.length - 1]))}</small></button>`).join("");
+  $$("#dSemPick .tab").forEach(b => b.onclick = () => { view.semSel = b.dataset.w; saveView(); renderDiaria(); });
   const refVal = k => view.per === "dia" ? vDia(k, view.dia) : view.per === "sem" ? (wAct ? vSem(m, k, wAct.dias[0]) : null) : vMes(m, k, hasta);
-  const semView = view.per === "sem" && m.semanal.length > 0;
-  const FIL = [["todos", semView ? `Todos (${m.semanal.length})` : `Todos (${m.kpis.length})`], ["desvio", "No cumplen"], ["turno", `Team Room ${turnoSel()}`]];
+  const semView = view.per === "sem";
+  const FIL = [["todos", semView ? `Todos (${semFilas.length})` : `Todos (${m.kpis.length})`], ["desvio", "No cumplen"], ["turno", `Team Room ${turnoSel()}`]];
   if (!FIL.some(f => f[0] === view.filt)) view.filt = "todos";
   $("#dFilter").innerHTML = FIL.map(([id, l]) => `<button class="tab" style="min-height:36px;padding:0 12px;font-size:13px" aria-selected="${view.filt === id}" data-f="${id}">${esc(l)}</button>`).join("");
   $$("#dFilter .tab").forEach(b => b.onclick = () => { view.filt = b.dataset.f; saveView(); renderDiaria(); });
   const q = nkey(view.q), selT = new Set((cfg.sel[turnoSel()] || []).map(key => resolve(m, key)?.key));
-  const rows = m.kpis.filter(k => (!q || nkey(k.nombre + " " + k.cat + " " + (k.sub || "")).includes(q))
-    && (!semView || m.semanal.includes(k.key)) && (view.filt !== "turno" || selT.has(k.key))
+  const rows = (semView ? semFilas : m.kpis).filter(k => (!q || nkey(k.nombre + " " + k.cat + " " + (k.sub || "")).includes(q))
+    && (view.filt !== "turno" || selT.has(k.key))
     && (view.filt !== "desvio" || ["warn", "adf"].includes(estado(k, refVal(k)))));
   const cnt = { ok: 0, warn: 0, adf: 0, sd: 0 }; rows.forEach(k => cnt[estado(k, refVal(k))]++);
-  const refTxt = view.per === "dia" ? `el día ${dm(view.dia)}` : view.per === "sem" ? `la ${semAct}` : "el mes";
+  const refTxt = view.per === "dia" ? `el día ${dm(view.dia)}` : view.per === "sem" ? `la ${semSel}` : "el mes";
   $("#dSum").innerHTML = `<span style="color:var(--dim)">Según ${esc(refTxt)}:</span><span><i style="background:var(--green)"></i>${cnt.ok} cumplen</span><span><i style="background:var(--red)"></i>${cnt.adf + cnt.warn} no cumplen</span><span><i style="background:var(--dim)"></i>${cnt.sd} sin dato o sin target</span>`;
   const modo = view.modo === "tarjetas" ? "tarjetas" : "tabla";
   $("#dModo").innerHTML = [["tabla", "▦ Tabla"], ["tarjetas", "▤ Tarjetas"]].map(([id, l]) => `<button class="tab" style="min-height:36px;padding:0 12px;font-size:13px" aria-selected="${modo === id}" data-m="${id}">${l}</button>`).join("");
@@ -1455,11 +1508,11 @@ function renderDiaria() {
   $("#dTabla").hidden = modo !== "tabla"; $("#dCards").hidden = modo !== "tarjetas";
   if (modo === "tarjetas") {
     const groups = []; rows.forEach(k => { const g = groups[groups.length - 1]; if (g && g.cat === k.cat) g.items.push(k); else groups.push({ cat: k.cat, items: [k] }); });
-    $("#dCards").innerHTML = groups.length ? groups.map(g => `<div class="cgrp"><h4>${esc(g.cat)}</h4><div class="kpis">${g.items.map(k => kpiCard(m, k, turnoSel(), true)).join("")}</div></div>`).join("") : `<div class="empty">No hay KPIs con este filtro.</div>`;
+    $("#dCards").innerHTML = groups.length ? groups.map(g => `<div class="cgrp"><h4>${esc(g.cat)}</h4><div class="kpis">${g.items.map(k => semView ? kpiCardSem(m, k, wAct) : kpiCard(m, k, turnoSel(), true)).join("")}</div></div>`).join("") : `<div class="empty">No hay KPIs con este filtro.</div>`;
     $$("#dCards [data-tool]").forEach(b => b.onclick = () => openTool(b.dataset.tool, resolve(m, b.dataset.k), turnoSel()));
     $$("#dCards [data-addt]").forEach(b => b.onclick = () => toggleSel(b.dataset.addt, b.dataset.key));
   }
-  const { html, few } = matrixHTML(m, rows, view.per, cols, true);
+  const { html, few } = matrixHTML(m, rows, view.per, cols, true, semSel);
   $("#matrix").innerHTML = html;
   $("#matrix").classList.toggle("full", !few);
   $$("#matrix th[data-day]").forEach(th => th.onclick = () => setDia(th.dataset.day, true));
@@ -1469,6 +1522,7 @@ function renderDiaria() {
   $("#dNote").innerHTML = `Valores tal cual la solapa Diaria de Logística (${esc(m.archivo)}). Las SEM son las columnas SEM de la Diaria; el Mes es el promedio de los días cargados${view.per === "mes" ? "" : " hasta el " + esc(dm(hasta))} (en seguridad y horas extras totales, la suma, como el Excel). <i class="aprox">*</i> calculado de los días porque la celda SEM está vacía · <i class="aprox">≈</i> promedio simple, el Excel lo calcula de otra forma. Tocá una fecha para ver solo ese día. Tocá un KPI para agregarlo a la Team Room de un turno.`;
 }
 function detalle(m, k) {
+  if (k.soloSemanal) return `<span class="hint">Este KPI está solo en la solapa Semanal: los valores son los de esa solapa, tal cual.</span>`;
   const dir = cfg.dir[nkey(k.nombre)] || "";
   return `<div class="row" style="gap:10px">
     <span class="lab">Team Room</span>${tNames().map(t => { const on = (cfg.sel[t] || []).includes(k.key); return `<button class="btn sm ${on ? "green" : "cyan"}" data-addt="${esc(t)}" data-key="${esc(k.key)}">${on ? "✓ En " : "+ Agregar a "}${esc(t)}</button>`; }).join("")}
@@ -1833,7 +1887,7 @@ let zoomK = null, zoomModo = "dia";
 document.addEventListener("click", e => {
   const c = e.target.closest(".kpi[data-zoom]"); if (!c || e.target.closest("button,a,input,select,textarea")) return;
   const m = M(); const k = m && resolve(m, c.dataset.zoom); if (!k) return;
-  zoomK = k.key; zoomModo = "dia"; renderZoom(); $("#zoomDlg").showModal();
+  zoomK = k.key; zoomModo = k.soloSemanal || view.per === "sem" && !$("section[data-view=diaria]").hidden ? "sem" : "dia"; renderZoom(); $("#zoomDlg").showModal();
 });
 $("#zoomDlg").addEventListener("click", e => { if (e.target.id === "zoomDlg") $("#zoomDlg").close(); });
 $("#zoomX").onclick = () => $("#zoomDlg").close();
