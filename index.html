@@ -1158,7 +1158,10 @@ function parseDiaria(wb, fileName) {
       for (let r = h2 + 1; r <= Math.min(r2.e.r, h2 + 120); r++) {
         const cx = kc > 0 ? at2(r, kc - 1) : null; if (cx && cx.t === "s" && norm(cx.v)) cat2 = norm(cx.v).toUpperCase();
         const nx = at2(r, kc); if (!nx || nx.t !== "s" || !norm(nx.v)) continue;
-        const nombre = norm(nx.v), match = kpis.find(k => nkey(k.nombre) === nkey(nombre) && !byKey.has(k.key));
+        const nombre = norm(nx.v), libres = kpis.filter(k => !byKey.has(k.key)), fix = x => nkey(x).replace(/\befiencia\b/g, "eficiencia");
+        // mismo KPI en la Diaria: nombre igual, o el de la Semanal es el comienzo del de la Diaria (ej. "Efiencia de carga" = "Eficiencia de Carga (Camiones en horario)")
+        let match = libres.find(k => nkey(k.nombre) === nkey(nombre)) || libres.find(k => fix(k.nombre) === fix(nombre));
+        if (!match) { const pre = libres.filter(k => fix(k.nombre).startsWith(fix(nombre) + " ")); if (pre.length === 1) match = pre[0]; }
         if (match) byKey.add(match.key);
         const pick = c => { if (c < 0) return null; const o = cellOut(at2(r, c)); return o ? { v: o.v, w: o.w } : null; };
         let zs = ""; const vals = semCols.map(sc => { const x = at2(r, sc.c), o = cellOut(x); if (o && o.z && o.z !== "General") zs = o.z; return o ? { v: o.v, w: o.w } : null; });
