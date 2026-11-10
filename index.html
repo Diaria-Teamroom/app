@@ -1684,22 +1684,52 @@ const IDB = {
   async del(k) { try { const d = await this.db(); await new Promise(res => { const t = d.transaction("h", "readwrite"); t.objectStore("h").delete(k); t.oncomplete = res; t.onerror = res; }); } catch (e) {} }
 };
 let linkH = null, linkInfo = LS.get("link", null);   // linkInfo: { nombre, leido, mod }
-async function vincular() {
+async function vincular(archivo) {
   try {
-    const [h] = await window.showOpenFilePicker({ types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx", ".xlsm"], "application/vnd.ms-excel": [".xls"] } }], multiple: false });
-    linkH = h; await IDB.set("kpi", h); await actualizar(true);
-  } catch (e) { if (e && e.name !== "AbortError") toast("No se pudo vincular el archivo"); }
+    let h;
+    if (!archivo && typeof window.showDirectoryPicker === "function") h = await window.showDirectoryPicker({ mode: "read" });
+    else [h] = await window.showOpenFilePicker({ types: [{ description: "Excel", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx", ".xlsm"], "application/vnd.ms-excel": [".xls"] } }], multiple: false });
+    linkH = h; linkInfo = null; LS.del("link"); await IDB.set("kpi", h); await actualizar(true);
+  } catch (e) { if (e && e.name !== "AbortError") toast("No se pudo vincular"); }
+}
+/* Carpeta vinculada: busca los NN_KPI_WH (NN = número de mes) y usa el mes más nuevo.
+   Si alguien vuelve a tocar un mes anterior que ya se había leído, también lo relee. */
+async function kpiDeCarpeta(dir) {
+  const out = [];
+  const recorrer = async (d, nivel) => {
+    for await (const [n, en] of d.entries()) {
+      if (en.kind === "file" && /\.(xlsx|xlsm|xls)$/i.test(n) && !n.startsWith("~$")) {
+        const m = n.match(/^\s*(\d{1,2})\D/), norm = n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]+/g, " ").toUpperCase();
+        const y = n.match(/(20\d{2})/);
+        if (m && +m[1] >= 1 && +m[1] <= 12 && norm.includes("KPI WH")) out.push({ n, mes: +m[1], anio: y ? +y[1] : new Date().getFullYear(), f: await en.getFile() });
+      } else if (en.kind === "directory" && nivel < 1) await recorrer(en, nivel + 1);
+    }
+  };
+  await recorrer(dir, 0);
+  return out.sort((a, b) => (b.anio * 12 + b.mes) - (a.anio * 12 + a.mes) || b.f.lastModified - a.f.lastModified);
 }
 async function actualizar(interactivo, soloSiCambio) {
   if (!linkH) { if (interactivo) vincular(); return; }
   try {
     let p = await linkH.queryPermission({ mode: "read" });
     if (p !== "granted") { if (!interactivo) { renderLink(); return; } p = await linkH.requestPermission({ mode: "read" }); }
-    if (p !== "granted") { toast("Sin permiso para leer el archivo"); renderLink(); return; }
+    if (p !== "granted") { toast("Sin permiso para leer"); renderLink(); return; }
+    if (linkH.kind === "directory") {
+      const lista = await kpiDeCarpeta(linkH);
+      if (!lista.length) { toast(`En “${linkH.name}” no encontré archivos NN_KPI_WH. Si es de OneDrive: clic derecho → “Mantener siempre en este dispositivo”.`); renderLink(); return; }
+      const mods = (linkInfo && linkInfo.mods) || {}, nuevo = lista[0];
+      const viejos = lista.slice(1).filter(x => mods[x.n] !== undefined && mods[x.n] !== x.f.lastModified);
+      const leerNuevo = !soloSiCambio || mods[nuevo.n] !== nuevo.f.lastModified;
+      for (const x of viejos) await readFile(x.f, true);        // primero los meses anteriores retocados
+      let ok = true;
+      if (leerNuevo || viejos.length) ok = await readFile(nuevo.f, !interactivo); // el mes más nuevo queda a la vista
+      if (ok) { linkInfo = { nombre: nuevo.n, leido: Date.now(), mod: nuevo.f.lastModified, mods: Object.fromEntries(lista.map(x => [x.n, x.f.lastModified])) }; LS.set("link", linkInfo); }
+      renderLink(); return;
+    }
     const f = await linkH.getFile();
     if (soloSiCambio && linkInfo && linkInfo.mod === f.lastModified) { renderLink(); return; }
     if (await readFile(f, !interactivo)) { linkInfo = { nombre: f.name, leido: Date.now(), mod: f.lastModified }; LS.set("link", linkInfo); }
-  } catch (e) { toast("No se pudo leer el archivo vinculado. Si OneDrive lo movió o renombró, vinculalo de nuevo."); }
+  } catch (e) { toast("No se pudo leer lo vinculado. Si OneDrive lo movió o renombró, vinculalo de nuevo."); }
   renderLink();
 }
 /* ===== respaldo: descargar y cargar todo lo guardado en este navegador ===== */
@@ -1726,11 +1756,13 @@ async function renderLink() {
   let perm = "";
   if (linkH) { try { perm = await linkH.queryPermission({ mode: "read" }); } catch (e) {} }
   box.innerHTML = linkH
-    ? `<div class="mes-chip on"><b>🔗 ${esc(linkH.name)}</b><span class="muted">${linkInfo ? "Leído " + esc(new Date(linkInfo.leido).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })) + " · guardado en Excel " + esc(new Date(linkInfo.mod).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })) : "Todavía no se leyó"}</span>
-        <span class="row" style="margin-left:auto"><button class="btn sm solid" data-upd>⟳ Actualizar</button><button class="btn sm" data-unl>Desvincular</button></span></div>
+    ? `<div class="mes-chip on"><b>${linkH.kind === "directory" ? "📁" : "🔗"} ${esc(linkH.name)}</b><span class="muted">${linkInfo ? (linkH.kind === "directory" && linkInfo.nombre ? "Usando " + esc(linkInfo.nombre) + " · " : "") + "Leído " + esc(new Date(linkInfo.leido).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })) + " · guardado en Excel " + esc(new Date(linkInfo.mod).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })) : "Todavía no se leyó"}</span>
+        <span class="row" style="margin-left:auto"><button class="btn sm solid" data-upd>⟳ Actualizar</button><button class="btn sm" data-link>Cambiar</button><button class="btn sm" data-unl>Desvincular</button></span></div>
+       ${linkH.kind !== "directory" ? `<div class="hint" style="margin-top:6px">Está vinculado un solo archivo. Tocá Cambiar y elegí la carpeta de los KPI: así toma solo el mes nuevo cada mes.</div>` : ""}
        ${perm !== "granted" ? `<div class="hint" style="margin-top:6px">El navegador pide permiso una vez por sesión: tocá Actualizar y aceptá "Permitir".</div>` : ""}`
-    : `<div class="row"><button class="btn cyan" data-link>🔗 Vincular Excel de la compu</button><span class="hint">Elegí el 10_KPI_WH de tu carpeta de OneDrive. Después solo tocás Actualizar.</span></div>`;
-  box.querySelector("[data-link]")?.addEventListener("click", vincular);
+    : `<div class="row"><button class="btn cyan" data-link>📁 Vincular carpeta de los KPI</button><button class="btn sm" data-linkf>o un solo Excel</button><span class="hint">Elegí la carpeta donde están los 10_KPI_WH, 11_KPI_WH… Toma sola el mes más nuevo.</span></div>`;
+  box.querySelector("[data-link]")?.addEventListener("click", () => vincular(false));
+  box.querySelector("[data-linkf]")?.addEventListener("click", () => vincular(true));
   box.querySelector("[data-upd]")?.addEventListener("click", () => actualizar(true));
   box.querySelector("[data-unl]")?.addEventListener("click", desvincular);
   $$(".updBtn").forEach(b => { b.hidden = !linkH; b.onclick = () => actualizar(true); });
