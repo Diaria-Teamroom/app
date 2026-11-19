@@ -1045,12 +1045,12 @@ let cfgBusy = 0, cfgPending = false;
 async function writeCfg() {
   cfgPending = false; LS.set("cfg", cfg); if (!dbRef) return;
   cfgBusy++;
-  try { await dbRef.db.collection("config").doc("main").set(JSON.parse(JSON.stringify(cfg))); }
-  catch (e) { if (e && e.code === "solo-lectura") return; toast("No se pudo guardar el cambio en la base compartida" + (e && e.code ? ` (${e.code})` : "") + ". Quedó en este navegador."); }
+  try { await dbRef.db.collection("config").doc("main").set(JSON.parse(JSON.stringify(cfg))); LS.del("cfgLocal"); }
+  catch (e) { if (e && e.code === "solo-lectura") { LS.set("cfgLocal", true); toast("Cambio guardado en esta compu. Para que lo vea todo el equipo, entrá como Admin (abajo a la izquierda)."); return; } toast("No se pudo guardar el cambio en la base compartida" + (e && e.code ? ` (${e.code})` : "") + ". Quedó en este navegador."); }
   finally { cfgBusy--; }
 }
 const pushCfg = debounce(writeCfg, 250);
-const saveCfg = () => { cfgPending = true; LS.set("cfg", cfg); pushCfg(); };
+const saveCfg = () => { cfg.rev = Date.now(); cfgPending = true; LS.set("cfg", cfg); pushCfg(); };   // rev: hora del último cambio, para no pisarlo con una copia vieja
 async function pushMes(mk) {
   LS.set("meses", meses);
   if (dbRef) { try { await dbRef.db.collection("meses").doc(mk).set(JSON.parse(JSON.stringify(meses[mk]))); } catch (e) { toast(e && e.code === "solo-lectura" ? "Para que lo vea todo el equipo, entrá como Admin (abajo a la izquierda) y volvé a cargar el Excel" : "El mes quedó guardado solo en este navegador"); } }
@@ -1064,6 +1064,7 @@ async function initStore() {
     db.collection("config").doc("main").onSnapshot(s => {
       const d = s.data(); if (!d) { writeCfg(); return; }
       if (cfgBusy || cfgPending) return;                       // hay un cambio local guardándose: no lo pisa
+      if ((d.rev || 0) < (cfg.rev || 0)) { if (sbAdmin) writeCfg(); return; }   // la copia compartida es más vieja que la de esta compu: no la pisa (y si es Admin, sube la nueva)
       if (!(d.schema >= 3)) {                                  // config vieja con indicadores de ejemplo: se reemplaza una vez
         cfg = cleanCfg(Object.assign({}, d, { sel: structuredClone(DEFAULT_CFG.sel), schema: 3 })); writeCfg(); renderAll(); return;
       }
